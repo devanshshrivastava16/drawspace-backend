@@ -1,0 +1,305 @@
+{
+	"info": {
+		"_postman_id": "b7e3d1a2-4c5f-4e8a-9d6b-1f0a2c3e4d5f",
+		"name": "DrawSpace Backend API",
+		"description": "REST collection for the DrawSpace backend (real-time multiplayer infinite drawing playground).\n\n**Run order:**\n1. Start the backend (`docker compose up -d` then `mvn spring-boot:run`, see README).\n2. Run **Rooms → Create room** — the test script stores `roomCode`, `participantId`, `participantToken` and `drawingId` into collection variables.\n3. Run **Rooms → Join room** with a second browser profile in mind — the script stores the *joiner's* identity (overwriting the creator's `participantId`/`participantToken`). Re-run Create room to get a fresh owner identity.\n4. The drawing endpoints use `{{drawingId}}` from the create response.\n\nWebSocket endpoints cannot be driven from this collection — see the **\"WebSocket testing note\"** request for the STOMP/SockJS details (destination list per CONTRACT §4).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		},
+		{
+			"key": "roomCode",
+			"value": ""
+		},
+		{
+			"key": "participantId",
+			"value": ""
+		},
+		{
+			"key": "participantToken",
+			"value": ""
+		},
+		{
+			"key": "drawingId",
+			"value": ""
+		}
+	],
+	"item": [
+		{
+			"name": "Rooms",
+			"description": "Room lifecycle (CONTRACT §3 #1–#5, #10). Privileged actions (leave, clear canvas) carry `{participantId, participantToken}` in the body and are verified server-side.",
+			"item": [
+				{
+					"name": "Create room",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"201 Created\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"const body = pm.response.json();",
+									"",
+									"// Store identity for the rest of the collection",
+									"pm.collectionVariables.set(\"roomCode\", body.roomCode);",
+									"pm.collectionVariables.set(\"participantId\", body.participantId);",
+									"pm.collectionVariables.set(\"participantToken\", body.participantToken);",
+									"pm.collectionVariables.set(\"drawingId\", body.drawingId);",
+									"",
+									"pm.test(\"response carries the full identity\", function () {",
+									"    pm.expect(body.roomCode).to.have.lengthOf(6);",
+									"    pm.expect(body.participantId).to.be.a(\"string\");",
+									"    pm.expect(body.participantToken).to.be.a(\"string\");",
+									"    pm.expect(body.drawingId).to.be.a(\"string\");",
+									"    pm.expect(body.maxParticipants).to.eql(5);",
+									"    pm.expect(body.color).to.match(/^#[0-9A-Fa-f]{6}$/);",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"displayName\": \"Alice\",\n  \"roomTitle\": \"Friday design jam\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/rooms",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "rooms"]
+						},
+						"description": "Creates a room + drawing, assigns the creator a palette color (§2) and returns the identity `{roomCode, roomTitle, drawingId, participantId, participantToken, displayName, color, maxParticipants}` (201). Validation: `displayName` 2–24 chars (400 on violation)."
+					},
+					"response": []
+				},
+				{
+					"name": "Join room",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"200 OK (404 unknown code / 409 full / 410 expired)\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 404, 409, 410]);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    const body = pm.response.json();",
+									"",
+									"    // NOTE: this OVERWRITES the creator identity with the joiner's —",
+									"    // re-run \"Create room\" if you need an owner identity again.",
+									"    pm.collectionVariables.set(\"roomCode\", body.roomCode);",
+									"    pm.collectionVariables.set(\"participantId\", body.participantId);",
+									"    pm.collectionVariables.set(\"participantToken\", body.participantToken);",
+									"    pm.collectionVariables.set(\"drawingId\", body.drawingId);",
+									"",
+									"    pm.test(\"response lists participants\", function () {",
+									"        pm.expect(body.participants).to.be.an(\"array\");",
+									"        pm.expect(body.participants.length).to.be.at.least(2);",
+									"        pm.expect(body.participants[0]).to.have.property(\"isOwner\");",
+									"        pm.expect(body.participants[0]).to.have.property(\"online\");",
+									"    });",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"displayName\": \"Bob\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/rooms/{{roomCode}}/join",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "rooms", "{{roomCode}}", "join"]
+						},
+						"description": "Joins an existing room. Concurrency-safe capacity check (2–5 participants, room row locked before counting, §10). Errors: 404 unknown code, 409 room full, 410 expired/inactive. Response = create response + `participants: [ParticipantResponse]`."
+					},
+					"response": []
+				},
+				{
+					"name": "Get room details",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/rooms/{{roomCode}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "rooms", "{{roomCode}}"]
+						},
+						"description": "Public room projection (§3 #3): `{roomCode, title, drawingId, ownerParticipantId, maxParticipants, activeParticipantCount, isActive, createdAt}`. 404 for unknown codes."
+					},
+					"response": []
+				},
+				{
+					"name": "Get participants",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/rooms/{{roomCode}}/participants",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "rooms", "{{roomCode}}", "participants"]
+						},
+						"description": "Lists room participants (§3 #4): `[{participantId, displayName, color, isOwner, online, joinedAt}]`. `online` = not left and last heartbeat within the stale threshold."
+					},
+					"response": []
+				},
+				{
+					"name": "Leave room",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"participantId\": \"{{participantId}}\",\n  \"participantToken\": \"{{participantToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/rooms/{{roomCode}}/leave",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "rooms", "{{roomCode}}", "leave"]
+						},
+						"description": "Privileged action (§3 #5): identity + token verified server-side. 204 on success. If the owner leaves, ownership transfers to the earliest-joined remaining active participant and an OWNER_CHANGED event is broadcast on `/topic/room/{code}/events`. Errors: 403 bad token / not enrolled, 404 unknown room."
+					},
+					"response": []
+				},
+				{
+					"name": "Clear canvas (owner only)",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"participantId\": \"{{participantId}}\",\n  \"participantToken\": \"{{participantToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/rooms/{{roomCode}}/canvas",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "rooms", "{{roomCode}}", "canvas"]
+						},
+						"description": "Owner-only privileged action (§3 #10): persists a CLEAR event through the standard save pipeline (§6) so it is replayable and undoable. 204 on success; 403 for non-owners or bad tokens."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Drawings",
+			"description": "Drawing projections, contributor stats, event history and snapshots (CONTRACT §3 #6–#9). All read-only.",
+			"item": [
+				{
+					"name": "Get drawing details",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/drawings/{{drawingId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "drawings", "{{drawingId}}"]
+						},
+						"description": "Drawing metadata (§3 #6): `{drawingId, title, roomCode, createdByParticipantId, creatorDisplayName, createdAt, updatedAt, totalOperations, contributorCount}`. 404 for unknown ids."
+					},
+					"response": []
+				},
+				{
+					"name": "Get contributors",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/drawings/{{drawingId}}/contributors",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "drawings", "{{drawingId}}", "contributors"]
+						},
+						"description": "Contributor statistics (§3 #7): `{drawingId, totalOperations, contributors:[{participantId, displayName, color, firstContributedAt, lastContributedAt, totalOperations, toolsUsed:[string]}]}`. Counts are activity statistics, not effort measures."
+					},
+					"response": []
+				},
+				{
+					"name": "Get event history",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/drawings/{{drawingId}}/history?afterSequence=0&limit=500",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "drawings", "{{drawingId}}", "history"],
+							"query": [
+								{
+									"key": "afterSequence",
+									"value": "0",
+									"description": "Return events with sequenceNumber > afterSequence (client replay cursor, §13)"
+								},
+								{
+									"key": "limit",
+									"value": "500",
+									"description": "Page size, capped at 1000"
+								}
+							]
+						},
+						"description": "Event log page (§3 #8): `{drawingId, lastSequence, hasMore, events:[{eventId, participantId, displayName, sequenceNumber, eventType, eventData, createdAt}]}` ascending by sequenceNumber. Clients loop with `afterSequence = lastSequence` until `hasMore = false`."
+					},
+					"response": []
+				},
+				{
+					"name": "Get latest snapshot",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/drawings/{{drawingId}}/snapshot",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "drawings", "{{drawingId}}", "snapshot"]
+						},
+						"description": "Latest canonical snapshot (§3 #9 / §9): 200 `{drawingId, sequenceNumber, snapshotData, createdAt}` or 404 when none exists yet (empty state, default \"Layer 1\"). `snapshotData` = `{canvasBg, layers, objects (live only), lastSequence}`."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "WebSocket",
+			"item": [
+				{
+					"name": "WebSocket testing note",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/actuator/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["actuator", "health"]
+						},
+						"description": "**This is not a real API call** — it pings `/actuator/health` so the note is runnable; the actual content below explains how to test the WebSocket layer (CONTRACT §4), which Postman's REST client cannot drive.\n\n## Endpoint\n`/ws-drawspace` — STOMP over WebSocket, **SockJS enabled** (fallback transports). Connect from the frontend origin (CORS/SockJS origin allow-list comes from `CORS_ALLOWED_ORIGINS`).\n\n## STOMP CONNECT headers\nNative headers on CONNECT:\n- `Authorization: Bearer <participantToken>` (UUID issued by create/join)\n- `X-Room-Code: <roomCode>`\n\nThe backend interceptor validates room + token, sets the STOMP Principal name = `participantId`, and stores the room code in the session. Every SEND must target the CONNECTed room. Failure rejects the CONNECT (no principal → handlers answer on `/user/queue/errors`).\n\n## Publish destinations (client → server, prefix `/app`)\n| Destination | Payload |\n|---|---|\n| `/app/room/{code}/draw` | `DrawingOperationMessage` (CONTRACT §7) |\n| `/app/room/{code}/cursor` | `{x, y}` world coords (relay only, never persisted) |\n| `/app/room/{code}/undo` | `{eventId, targetEventId}` |\n| `/app/room/{code}/redo` | `{eventId, targetEventId}` (target = the UNDO event's id) |\n| `/app/room/{code}/clear` | `{eventId}` |\n| `/app/room/{code}/presence` | `{status: \"ACTIVE\"}` heartbeat every ~25 s |\n| `/app/room/{code}/viewport` | `{x, y, zoom, width, height}` (minimap indicator only, never persisted) |\n\n## Subscribe topics (server → client)\n| Topic | Payload |\n|---|---|\n| `/topic/room/{code}/draw` | accepted op enriched with `participantId, displayName, participantColor, sequenceNumber, serverTimestamp` |\n| `/topic/room/{code}/cursor` | `{participantId, displayName, color, x, y}` (not persisted) |\n| `/topic/room/{code}/participants` | full `[ParticipantResponse]` after join/leave/disconnect/cleanup |\n| `/topic/room/{code}/events` | `{type: \"PARTICIPANT_JOINED\"\\|\"PARTICIPANT_LEFT\"\\|\"OWNER_CHANGED\"\\|\"SNAPSHOT_SAVED\", participantId?, displayName?, message, timestamp}` |\n| `/topic/room/{code}/viewport` | `{participantId, displayName, color, x, y, zoom, width, height}` |\n| `/topic/room/{code}/canvas` | `{type: \"SNAPSHOT_CREATED\", sequenceNumber}` |\n| `/user/queue/ack` | `{eventId, sequenceNumber, status: \"SAVED\"}` (per-participant ack) |\n| `/user/queue/errors` | `{eventId?, message}` |\n\n## How to test manually\n1. Create/join a room via this collection to mint `participantToken` + `roomCode`.\n2. Use a STOMP client (e.g. `stompjs` + `sockjs-client` in a scratch HTML page, or `websocat` against the raw WebSocket transport) with the CONNECT headers above.\n3. Publish a BRUSH_STROKE to `/app/room/{code}/draw`; expect the enriched copy on `/topic/room/{code}/draw` and `{eventId, sequenceNumber, status: \"SAVED\"}` on `/user/queue/ack`.\n4. Re-sending the same `eventId` must NOT re-broadcast (idempotent dedupe, §6) but still acks the existing sequence.\n5. Open two browser windows to observe multi-participant cursor/presence/participants traffic."
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

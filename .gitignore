@@ -1,0 +1,27 @@
+# Build output
+target/
+build/
+out/
+
+# Environment / secrets
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+
+# OS
+.DS_Store
+Thumbs.db

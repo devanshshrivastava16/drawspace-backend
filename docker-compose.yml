@@ -1,0 +1,21 @@
+# DrawSpace backend PostgreSQL (CONTRACT §12: DB_URL/DB_USERNAME/DB_PASSWORD defaults)
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: drawspace-db
+    environment:
+      POSTGRES_DB: drawspace
+      POSTGRES_USER: drawspace
+      POSTGRES_PASSWORD: drawspace
+    ports:
+      - "5432:5432"
+    volumes:
+      - drawspace-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drawspace -d drawspace"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  drawspace-pgdata:

@@ -1,0 +1,78 @@
+# =====================================================================
+# DrawSpace Backend configuration (CONTRACT §12)
+# All deployment-specific values come from environment variables with
+# sane local defaults (see .env.example).
+# =====================================================================
+server:
+  address: 0.0.0.0
+  port: ${PORT:${SERVER_PORT:8080}}
+
+spring:
+  application:
+    name: drawspace-backend
+  config:
+    import: optional:file:.env[.properties]
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 30000
+      idle-timeout: 60000
+      max-lifetime: 300000
+      keepalive-time: 60000
+      validation-timeout: 5000
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+#  jackson:
+#    serialization:
+#      # ISO-8601 strings for Instant (CONTRACT §12: JSON dates are ISO-8601)
+#      write-dates-as-timestamps: false
+
+# =====================================================================
+# Application-specific properties (bound to config.DrawSpaceProperties)
+# =====================================================================
+drawspace:
+  # rooms.expires_at = created_at + room-ttl-hours
+  room-ttl-hours: ${ROOM_TTL_HOURS:24}
+  # persist a canvas snapshot every N accepted drawing events
+  snapshot-interval: ${SNAPSHOT_INTERVAL:500}
+  # participants without a presence heartbeat for this long are reaped as stale
+  stale-threshold-minutes: ${STALE_THRESHOLD_MINUTES:10}
+  # capacity per room (CONTRACT §10)
+  max-participants: ${MAX_PARTICIPANTS:5}
+  cors:
+    # comma-separated list of allowed origins; MUST include the frontend origin
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.drawspace: DEBUG
